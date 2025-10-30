@@ -4,8 +4,8 @@ st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1rem;  /* réduit la marge supérieure */
-            padding-bottom: 1rem; /* optionnel : réduit aussi en bas */
+            padding-top: 1rem;
+            padding-bottom: 1rem;
         }
     </style>
     """,
@@ -35,8 +35,7 @@ def insert_concat(regex):
 
 def to_postfix(regex):
     prec = {'*': 3, '+':3, '?':3, '.':2, '|':1}
-    output = []
-    stack = []
+    output, stack = [], []
     for c in regex:
         if c.isalnum():
             output.append(c)
@@ -45,18 +44,13 @@ def to_postfix(regex):
         elif c == ')':
             while stack and stack[-1] != '(':
                 output.append(stack.pop())
-            if not stack:
-                raise ValueError("Parenthèse fermante sans ouvrante")
             stack.pop()
         else:
             while stack and stack[-1] != '(' and prec.get(stack[-1],0) >= prec.get(c,0):
                 output.append(stack.pop())
             stack.append(c)
     while stack:
-        op = stack.pop()
-        if op in '()':
-            raise ValueError("Parenthèses mal appariées")
-        output.append(op)
+        output.append(stack.pop())
     return ''.join(output)
 
 # -------------------------
@@ -68,16 +62,15 @@ class Fragment:
         self.accept = accept
 
 def thompson_with_steps(postfix):
-    from collections import defaultdict
     transitions = defaultdict(list)
     counter = itertools.count()
     stack = []
     steps = []
 
-    def snapshot(tok, new_transitions):
+    def snapshot(tok, new_trans):
         copy_trans = {s: list(lst) for s, lst in transitions.items()}
-        stack_repr = [f"[{frag.start}->{frag.accept}]" for frag in stack]
-        steps.append({'tok': tok, 'stack': list(stack_repr), 'transitions': copy_trans, 'new': new_transitions})
+        stack_repr = [f"[{f.start}->{f.accept}]" for f in stack]
+        steps.append({'tok': tok, 'stack': list(stack_repr), 'transitions': copy_trans, 'new': new_trans})
 
     for tok in postfix:
         new_trans = []
@@ -96,8 +89,7 @@ def thompson_with_steps(postfix):
             f2 = stack.pop()
             f1 = stack.pop()
             s, a = next(counter), next(counter)
-            transitions[s].append((EPS, f1.start))
-            transitions[s].append((EPS, f2.start))
+            transitions[s] += [(EPS, f1.start), (EPS, f2.start)]
             transitions[f1.accept].append((EPS, a))
             transitions[f2.accept].append((EPS, a))
             new_trans += [(s, EPS, f1.start), (s, EPS, f2.start), (f1.accept, EPS, a), (f2.accept, EPS, a)]
@@ -105,41 +97,31 @@ def thompson_with_steps(postfix):
         elif tok == '*':
             f = stack.pop()
             s, a = next(counter), next(counter)
-            transitions[s].append((EPS, f.start))
-            transitions[s].append((EPS, a))
-            transitions[f.accept].append((EPS, f.start))
-            transitions[f.accept].append((EPS, a))
+            transitions[s] += [(EPS, f.start), (EPS, a)]
+            transitions[f.accept] += [(EPS, f.start), (EPS, a)]
             new_trans += [(s, EPS, f.start), (s, EPS, a), (f.accept, EPS, f.start), (f.accept, EPS, a)]
             stack.append(Fragment(s, a))
         elif tok == '+':
             f = stack.pop()
             s, a = next(counter), next(counter)
             transitions[s].append((EPS, f.start))
-            transitions[f.accept].append((EPS, f.start))
-            transitions[f.accept].append((EPS, a))
+            transitions[f.accept] += [(EPS, f.start), (EPS, a)]
             new_trans += [(s, EPS, f.start), (f.accept, EPS, f.start), (f.accept, EPS, a)]
             stack.append(Fragment(s, a))
         elif tok == '?':
             f = stack.pop()
             s, a = next(counter), next(counter)
-            transitions[s].append((EPS, f.start))
-            transitions[s].append((EPS, a))
+            transitions[s] += [(EPS, f.start), (EPS, a)]
             transitions[f.accept].append((EPS, a))
             new_trans += [(s, EPS, f.start), (s, EPS, a), (f.accept, EPS, a)]
             stack.append(Fragment(s, a))
-        else:
-            raise ValueError(f"Symbole non supporté: {tok}")
         snapshot(tok, new_trans)
 
-    if len(stack) != 1:
-        raise ValueError("Expression invalide : pile finale ≠ 1")
-
     frag = stack.pop()
-    final_nfa = {'start': frag.start, 'accept': frag.accept, 'transitions': dict(transitions)}
-    return steps, final_nfa
+    return steps, {'start': frag.start, 'accept': frag.accept, 'transitions': dict(transitions)}
 
 # -------------------------
-# Conversion NFA -> DFA
+# NFA → DFA
 # -------------------------
 def epsilon_closure(states, transitions):
     closure = set(states)
@@ -162,26 +144,19 @@ def move(states, symbol, transitions):
 
 def nfa_to_dfa(nfa):
     transitions = nfa['transitions']
-    start = nfa['start']
-    accept = nfa['accept']
+    start, accept = nfa['start'], nfa['accept']
     symbols = sorted(set(sym for lst in transitions.values() for sym,_ in lst if sym and sym != EPS))
 
     start_set = frozenset(epsilon_closure({start}, transitions))
-    unmarked = [start_set]
-    dfa_states = {start_set: 0}
-    dfa_trans = {}
-    dfa_accepts = set()
+    unmarked, dfa_states, dfa_trans, dfa_accepts = [start_set], {start_set: 0}, {}, set()
     if accept in start_set:
         dfa_accepts.add(start_set)
 
-    sink = frozenset({'sink'})
     while unmarked:
         T = unmarked.pop()
         for sym in symbols:
             U = frozenset(epsilon_closure(move(T, sym, transitions), transitions))
             if not U:
-                dfa_states.setdefault(sink, len(dfa_states))
-                dfa_trans[(T, sym)] = sink
                 continue
             if U not in dfa_states:
                 dfa_states[U] = len(dfa_states)
@@ -190,24 +165,37 @@ def nfa_to_dfa(nfa):
                     dfa_accepts.add(U)
             dfa_trans[(T, sym)] = U
 
-    for sym in symbols:
-        dfa_trans[(sink, sym)] = sink
+    # Vérifier la complétude du DFA
+    all_defined = all(
+        (T, sym) in dfa_trans
+        for T in dfa_states.keys()
+        for sym in symbols
+    )
+    if not all_defined:
+        sink = frozenset({'sink'})
+        dfa_states[sink] = len(dfa_states)
+        for T in list(dfa_states.keys()):
+            for sym in symbols:
+                if (T, sym) not in dfa_trans:
+                    dfa_trans[(T, sym)] = sink
+        for sym in symbols:
+            dfa_trans[(sink, sym)] = sink
 
-    return {'states': list(dfa_states.keys()), 'start': start_set, 'accepts': dfa_accepts, 'transitions': dfa_trans, 'symbols': symbols}
+    return {
+        'states': list(dfa_states.keys()),
+        'start': start_set,
+        'accepts': dfa_accepts,
+        'transitions': dfa_trans,
+        'symbols': symbols
+    }
 
 # -------------------------
-# Utility : build DOT (organisé et stable)
+# Graphviz
 # -------------------------
 def transitions_to_dot(transitions, new_edges=None, start=None, accept=None):
     g = graphviz.Digraph()
     g.attr(rankdir='LR', ranksep='1', nodesep='0.5')
     g.attr('node', shape='circle', fixedsize='true', width='1', height='1', fontsize='12')
-    if start is not None:
-        g.node('start', shape='point', width='0.1', height='0.1', fixedsize='true')
-        g.edge('start', str(start))
-  #  if start is not None:
-  #      g.node('start', shape='point')
-  #      g.edge('start', str(start))
 
     all_states = set(transitions.keys())
     for s, lst in transitions.items():
@@ -215,62 +203,29 @@ def transitions_to_dot(transitions, new_edges=None, start=None, accept=None):
             all_states.add(d)
 
     for s in sorted(all_states, key=lambda x: str(x)):
-        if s == accept:
-            g.node(str(s), shape='doublecircle')
-        else:
-            g.node(str(s))
+        g.node(str(s), shape='doublecircle' if s == accept else 'circle')
 
     for s, lst in transitions.items():
         for sym, d in lst:
-            color = "red" if new_edges and (s, sym, d) in new_edges else "black"
             label = EPS if sym == EPS or sym is None else sym
-            g.edge(str(s), str(d), label=label, color=color)
+            g.edge(str(s), str(d), label=label, color="black")
 
     return g
 
 # -------------------------
-# Streamlit UI
+# Interface Streamlit
 # -------------------------
 st.set_page_config(page_title="Algorithme de Thompson", layout="wide")
 
-col_logo, col_title = st.columns([1,5])
-with col_logo:
-    st.image("logo.png", width=100)
-with col_title:
-    st.title("Algorithme de Thompson")
-    st.caption("Construction de l’automate de Thompson et conversion NFA → DFA")
+st.title("Algorithme de Thompson")
+st.caption("Construction de l’automate de Thompson et conversion NFA → DFA")
 
-#with st.sidebar:
-#    st.header("Entrée")
- #   regex = st.text_input("Expression régulière", value="ab")
- #   build = st.button("Construire l'automate")
-  #  show_dfa = st.checkbox("Afficher le DFA (après NFA)", value=False)
-st.header("Entrée")
 regex = st.text_input("Expression régulière", value="ab")
-
 colA, colB = st.columns([1, 1])
 with colA:
     build = st.button("Construire l'automate")
 with colB:
-    show_dfa = st.checkbox("Afficher le DFA (après NFA)", value=False)
-
-st.divider()
-
-
-if 'steps' not in st.session_state:
-    st.session_state.steps = []
-if 'final_nfa' not in st.session_state:
-    st.session_state.final_nfa = None
-if 'idx' not in st.session_state:
-    st.session_state.idx = 0
-
-col1, col2 = st.columns([1,2])
-postfix_box = col1.empty()
-info_box = col1.empty()
-graph_box = col2.empty()
-nav1, nav2 = col1.columns([1,1])
-prev_btn = nav1.button("← Étape précédente")
-next_btn = nav2.button("Étape suivante")
+    show_dfa = st.checkbox("Afficher le DFA", value=False)
 
 if build:
     try:
@@ -280,43 +235,40 @@ if build:
         st.session_state.steps = steps
         st.session_state.final_nfa = final_nfa
         st.session_state.idx = 0
-        st.success("Automate NFA construit.")
+        st.success("Automate construit avec succès.")
     except Exception as e:
         st.error(f"Erreur : {e}")
-        st.session_state.steps = []
-        st.session_state.final_nfa = None
 
-if st.session_state.steps:
-    if next_btn and st.session_state.idx < len(st.session_state.steps)-1:
-        st.session_state.idx += 1
-    if prev_btn and st.session_state.idx > 0:
-        st.session_state.idx -= 1
+if 'steps' in st.session_state:
+    steps = st.session_state.steps
+    if steps:
+        idx = st.session_state.get('idx', 0)
+        step = steps[idx]
+        st.markdown(f"### Étape {idx+1}/{len(steps)} — Symbole : **{step['tok']}**")
+        dot = transitions_to_dot(step['transitions'], step.get('new', []),
+                                 start=st.session_state.final_nfa['start'],
+                                 accept=st.session_state.final_nfa['accept'])
+        st.graphviz_chart(dot.source)
 
-    idx = st.session_state.idx
-    step = st.session_state.steps[idx]
-    postfix_box.markdown(f"**Étape {idx+1}/{len(st.session_state.steps)} — Symbole traité :** {step['tok']}")
-    info_box.write(f"Pile : {step['stack']}")
-    dot = transitions_to_dot(step['transitions'], step.get('new', []),
-                             start=st.session_state.final_nfa['start'],
-                             accept=st.session_state.final_nfa['accept'])
-    graph_box.graphviz_chart(dot.source)
+        if show_dfa:
+            dfa = nfa_to_dfa(st.session_state.final_nfa)
+            st.subheader("DFA correspondant")
+            gdfa = graphviz.Digraph()
+            gdfa.attr(rankdir='LR')
 
-    if show_dfa and st.session_state.final_nfa:
-        dfa = nfa_to_dfa(st.session_state.final_nfa)
-        st.subheader("DFA correspondant")
-        gdfa = graphviz.Digraph()
-        gdfa.attr(rankdir='LR')
-        for state in dfa['states']:
-            if 'sink' in state:
-                gdfa.node("∅", shape='circle', style='filled', fillcolor='lightgrey', width='1', height='1', fixedsize='true')
-                continue
-            name = "{" + ",".join(map(str, sorted(state))) + "}"
-            shape = 'doublecircle' if state in dfa['accepts'] else 'circle'
-            gdfa.node(name, shape=shape, width='1', height='1', fixedsize='true')
-        for (src, sym), dest in dfa['transitions'].items():
-            src_name = "∅" if 'sink' in src else "{" + ",".join(map(str, sorted(src))) + "}"
-            dest_name = "∅" if 'sink' in dest else "{" + ",".join(map(str, sorted(dest))) + "}"
-            gdfa.edge(src_name, dest_name, label=sym)
-        st.graphviz_chart(gdfa.source)
-else:
-    st.info("Entrez une expression régulière et cliquez sur *Construire l'automate*.")
+            for state in dfa['states']:
+                name_raw = ",".join(map(str, sorted(state)))
+                if len(name_raw) > 12:
+                    half = len(name_raw)//2
+                    name_raw = name_raw[:half] + "\\n" + name_raw[half:]
+                name = "{" + name_raw + "}"
+                shape = 'doublecircle' if state in dfa['accepts'] else 'circle'
+                color = 'lightgrey' if 'sink' in state else 'white'
+                gdfa.node(name, shape=shape, width='1', height='1', fixedsize='true', style='filled', fillcolor=color)
+
+            for (src, sym), dest in dfa['transitions'].items():
+                src_name = "{" + ",".join(map(str, sorted(src))) + "}"
+                dest_name = "{" + ",".join(map(str, sorted(dest))) + "}"
+                gdfa.edge(src_name, dest_name, label=sym)
+
+            st.graphviz_chart(gdfa.source)
