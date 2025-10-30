@@ -227,11 +227,20 @@ with col_title:
     st.title("Algorithme de Thompson")
     st.caption("Construction de l’automate de Thompson et conversion NFA → DFA")
 
-with st.sidebar:
+#with st.sidebar:
+#    st.header("Entrée")
+ #   regex = st.text_input("Expression régulière", value="ab")
+ #   build = st.button("Construire l'automate")
+  #  show_dfa = st.checkbox("Afficher le DFA (après NFA)", value=False)
     st.header("Entrée")
     regex = st.text_input("Expression régulière", value="ab")
+    colA, colB = st.columns([1, 1])
+        with colA:
     build = st.button("Construire l'automate")
+        with colB:
     show_dfa = st.checkbox("Afficher le DFA (après NFA)", value=False)
+    st.divider()
+
 
 if 'steps' not in st.session_state:
     st.session_state.steps = []
