@@ -232,14 +232,16 @@ with col_title:
  #   regex = st.text_input("Expression régulière", value="ab")
  #   build = st.button("Construire l'automate")
   #  show_dfa = st.checkbox("Afficher le DFA (après NFA)", value=False)
-    st.header("Entrée")
-    regex = st.text_input("Expression régulière", value="ab")
-    colA, colB = st.columns([1, 1])
-        with colA:
+st.header("Entrée")
+regex = st.text_input("Expression régulière", value="ab")
+
+colA, colB = st.columns([1, 1])
+with colA:
     build = st.button("Construire l'automate")
-        with colB:
+with colB:
     show_dfa = st.checkbox("Afficher le DFA (après NFA)", value=False)
-    st.divider()
+
+st.divider()
 
 
 if 'steps' not in st.session_state:
