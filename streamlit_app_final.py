@@ -190,9 +190,9 @@ def transitions_to_dot(transitions, new_edges=None, start=None, accept=None):
     g.attr(rankdir='LR', ranksep='1', nodesep='0.5')
     g.attr('node', shape='circle', fixedsize='true', width='1', height='1', fontsize='12')
 
-    if start is not None:
-        g.node('start', shape='point')
-        g.edge('start', str(start))
+  #  if start is not None:
+  #      g.node('start', shape='point')
+  #      g.edge('start', str(start))
 
     all_states = set(transitions.keys())
     for s, lst in transitions.items():
