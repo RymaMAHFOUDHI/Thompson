@@ -1,4 +1,17 @@
 import streamlit as st
+# Réduire l’espace blanc en haut de la page
+st.markdown(
+    """
+    <style>
+        .block-container {
+            padding-top: 1rem;  /* réduit la marge supérieure */
+            padding-bottom: 1rem; /* optionnel : réduit aussi en bas */
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 from collections import defaultdict
 import itertools
 import graphviz
